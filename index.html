@@ -245,7 +245,6 @@ body[data-provider="apple"] .provider-google{display:none!important}
       <div id="map" class="map" aria-label="Interactive Map"></div>
       <div id="captureOverlay" class="capture-overlay" aria-hidden="true">
         <div id="captureBadge" class="capture-badge">POINT</div>
-        <div id="captureMeta" class="capture-meta"></div>
       </div>
       <aside id="historyDrawer" class="history-drawer" aria-hidden="true">
         <div class="drawer-head"><strong>النقط المسجلة</strong><button id="closeHistory" class="iconbtn" type="button">✕</button></div>
@@ -263,9 +262,9 @@ body[data-provider="apple"] .provider-google{display:none!important}
   لم يتم تضمين مفاتيح حقيقية لأن الملف الأصلي لا يحتوي عليها.
 */
 const MAP_CONFIG = Object.freeze({
-  googleMapsApiKey: 'AIzaSyDqutMk9TS-U2QRZmXeGpIEaiVNTS34J8s', // ضع Google Maps API Key بين علامتي الاقتباس
+  googleMapsApiKey: '', // ضع Google Maps API Key بين علامتي الاقتباس
   googleMapId: 'DEMO_MAP_ID', // عوّضه بـ Map ID حقيقي إن توفر
-  appleMapKitToken: 'eyJraWQiOiJLM0RaWEZNTTNHIiwidHlwIjoiSldUIiwiYWxnIjoiRVMyNTYifQ.eyJpc3MiOiIyOTZVMjVRSzg1IiwiaWF0IjoxNzk1NDMwNTc2LCJvcmlnaW4iOiJheW1hbm5hZGlyMjAyNC5naXRodWIuaW8iLCJzY29wZSI6Im1hcGtpdF9qcyIsImV4cCI6MTgxMDk4MjU3NX0.i4YszZzpc_MwHrWcfIrWFfjDjLH1667IMQ2HHli0scMAUmYq1PYnJSgUffGp9lwrmAGOwE11wsw6YW-VvXg86Q' // ضع Apple MapKit JS Token بين علامتي الاقتباس
+  appleMapKitToken: '' // ضع Apple MapKit JS Token بين علامتي الاقتباس
 });
 // توافق اختياري مع المفاتيح التي سبق إدخالها في النسخة القديمة على نفس المتصفح والموقع.
 const STORAGE_KEY='abht_google_maps_api_key_v1';
@@ -391,16 +390,52 @@ function markerContent(p){
     '<span dir="ltr">X '+Number(p.x).toFixed(2)+' &nbsp; Y '+Number(p.y).toFixed(2)+'</span><br>'+
     '<span dir="ltr">Lon '+p.lon.toFixed(6)+' &nbsp; Lat '+p.lat.toFixed(6)+'</span></div>';
 }
+// سحب أي نقطة يحفظ موقعها الجديد ويعيد حساب إحداثيات Lambert تلقائياً.
+function saveDraggedPoint(p,lon,lat){
+  if(!Number.isFinite(lon)||!Number.isFinite(lat)||lon<-180||lon>180||lat<-90||lat>90)return false;
+  const [x,y]=wgsToLambert(lon,lat);
+  if(!Number.isFinite(x)||!Number.isFinite(y))return false;
+  p.lon=lon;p.lat=lat;p.x=x;p.y=y;
+  localStorage.setItem(STORAGE_POINTS,JSON.stringify(savedPoints));
+  $('lon').value=lon.toFixed(6);$('lat').value=lat.toFixed(6);
+  $('x').value=x.toFixed(2);$('y').value=y.toFixed(2);
+  coordInputMode='wgs';
+  updateResult(p);renderHistory();
+  $('inputMsg').textContent='تم تحريك النقطة وتحديث إحداثيات WGS84 وLambert وحفظ الموقع الجديد.';
+  $('inputMsg').className='msg ok';
+  return true;
+}
 function createMarker(p,center=false){
   if(activeProvider==='google'){
     const pin=new PinElement({background:'#1769aa',borderColor:'#ffffff',glyphColor:'#ffffff',scale:1.05});
-    const m=new AdvancedMarkerElement({map,position:{lat:p.lat,lng:p.lon},title:'نقطة',gmpClickable:true});
+    const m=new AdvancedMarkerElement({map,position:{lat:p.lat,lng:p.lon},title:'نقطة',gmpClickable:true,gmpDraggable:true});
     m.append(pin);
     m.addEventListener('gmp-click',()=>{infoWindow.setContent(markerContent(p));infoWindow.open({map,anchor:m});updateResult(p)});
+    m.addEventListener('gmp-dragstart',()=>{if(infoWindow)infoWindow.close()});
+    m.addEventListener('gmp-dragend',()=>{
+      const position=m.position;
+      if(!position)return;
+      const lat=typeof position.lat==='function'?position.lat():Number(position.lat);
+      const lon=typeof position.lng==='function'?position.lng():Number(position.lng);
+      if(!saveDraggedPoint(p,lon,lat)){
+        m.position={lat:p.lat,lng:p.lon};
+        $('inputMsg').textContent='تعذر حفظ موقع النقطة الجديد.';$('inputMsg').className='msg bad';
+      }
+    });
     markers.push({id:p.id,marker:m});
     if(center){map.panTo({lat:p.lat,lng:p.lon});if((map.getZoom()||0)<13)map.setZoom(13);infoWindow.setContent(markerContent(p));infoWindow.open({map,anchor:m})}
   }else{
-    const ann=new mapkit.MarkerAnnotation(new mapkit.Coordinate(p.lat,p.lon),{title:'نقطة',subtitle:'X '+Number(p.x).toFixed(2)+' · Y '+Number(p.y).toFixed(2),color:'#1769aa'});
+    const ann=new mapkit.MarkerAnnotation(new mapkit.Coordinate(p.lat,p.lon),{title:'نقطة',subtitle:'X '+Number(p.x).toFixed(2)+' · Y '+Number(p.y).toFixed(2),color:'#1769aa',draggable:true});
+    ann.addEventListener('drag-end',()=>{
+      const c=ann.coordinate;
+      if(!c)return;
+      if(saveDraggedPoint(p,c.longitude,c.latitude)){
+        ann.subtitle='X '+Number(p.x).toFixed(2)+' · Y '+Number(p.y).toFixed(2);
+      }else{
+        ann.coordinate=new mapkit.Coordinate(p.lat,p.lon);
+        $('inputMsg').textContent='تعذر حفظ موقع النقطة الجديد.';$('inputMsg').className='msg bad';
+      }
+    });
     ann.data={point:p,id:p.id};map.addAnnotation(ann);markers.push({id:p.id,marker:ann});
     if(center){map.region=new mapkit.CoordinateRegion(new mapkit.Coordinate(p.lat,p.lon),new mapkit.CoordinateSpan(.02,.025));try{ann.selected=true}catch{}updateResult(p)}
   }
@@ -501,11 +536,43 @@ function setShotMsg(msg,kind=''){const el=$('shotMsg');el.textContent=msg;el.cla
 function sanitizeFilePart(s){return String(s||'point').normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[^a-zA-Z0-9._-]+/g,'-').replace(/-+/g,'-').replace(/^-|-$/g,'')||'point'}
 function buildShotFilename(p,pointNo){const num=sanitizeFilePart(pointNo||'');return (num?num:'screenshot-a4')+'.jpg'}
 
+// Screenshot: رقم النقطة فقط؛ بدون صندوق الإحداثيات أو فقاعات معلومات العلامات.
+let captureGoogleInfoMarker=null;
+let captureSelectedAppleAnnotations=[];
+function hideMapCalloutsForCapture(){
+  captureGoogleInfoMarker=null;
+  captureSelectedAppleAnnotations=[];
+  if(activeProvider==='google'&&infoWindow){
+    try{
+      if(infoWindow.getMap()){
+        const p=activePoint();
+        captureGoogleInfoMarker=p?markers.find(item=>item.id===p.id)||null:null;
+      }
+      infoWindow.close();
+    }catch(e){console.warn('Info window:',e)}
+  }else if(activeProvider==='apple'){
+    for(const item of markers){
+      try{if(item.marker.selected){captureSelectedAppleAnnotations.push(item.marker);item.marker.selected=false}}catch{}
+    }
+  }
+}
+function restoreMapCalloutsAfterCapture(){
+  if(activeProvider==='google'&&captureGoogleInfoMarker&&infoWindow){
+    try{
+      const item=captureGoogleInfoMarker;
+      const p=savedPoints.find(point=>point.id===item.id);
+      if(p){infoWindow.setContent(markerContent(p));infoWindow.open({map,anchor:item.marker})}
+    }catch(e){console.warn('Info window:',e)}
+  }else if(activeProvider==='apple'){
+    for(const ann of captureSelectedAppleAnnotations){try{ann.selected=true}catch{}}
+  }
+  captureGoogleInfoMarker=null;
+  captureSelectedAppleAnnotations=[];
+}
 function showCaptureOverlay(p,pointNo){
   const ov=$('captureOverlay'),badge=$('captureBadge');
   badge.textContent=pointNo||'';badge.classList.toggle('empty',!pointNo);
-  let html=p?'<strong>إحداثيات النقطة</strong><span class="meta-inline">X '+Number(p.x).toFixed(2)+' | Y '+Number(p.y).toFixed(2)+'</span><span class="meta-inline">Lon '+p.lon.toFixed(6)+' | Lat '+p.lat.toFixed(6)+'</span>':'<strong>ABHT · Cartographie</strong>';
-  $('captureMeta').innerHTML=html;ov.classList.add('show');ov.setAttribute('aria-hidden','false');
+  ov.classList.add('show');ov.setAttribute('aria-hidden','false');
 }
 function hideCaptureOverlay(){
   const ov=$('captureOverlay');ov.classList.remove('show');ov.setAttribute('aria-hidden','true');
@@ -613,6 +680,7 @@ async function captureScreenshot(){
   if(!p){setShotMsg('أضف نقطة قبل إنشاء Screenshot.','bad');return}
   const btn=$('captureBtn'),pointNo=$('pointNumber').value.trim();
   btn.disabled=true;
+  hideMapCalloutsForCapture();
   showCaptureOverlay(p,pointNo);
   setShotMsg('جارٍ إنشاء الصورة A4 بدون هوامش…','');
   try{
@@ -632,6 +700,7 @@ async function captureScreenshot(){
 
     if(document.querySelector('.mapwrap').classList.contains('a4-capture-map'))exitA4CaptureMode();
     hideCaptureOverlay();
+    restoreMapCalloutsAfterCapture();
     btn.disabled=false;
   }
 }
