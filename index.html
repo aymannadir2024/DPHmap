@@ -192,9 +192,6 @@ body[data-provider="apple"] .provider-google{display:none!important}
         <option value="google">Google Maps</option>
         <option value="apple">Apple Maps</option>
       </select>
-      <input id="apiKey" class="provider-google" type="password" autocomplete="off" placeholder="Google Maps API Key">
-      <input id="mapId" class="provider-google" type="text" autocomplete="off" value="DEMO_MAP_ID" placeholder="Map ID (اختياري)">
-      <input id="appleToken" class="provider-apple" type="password" autocomplete="off" placeholder="Apple MapKit JS Token">
       <button id="loadMap" class="primary">تشغيل الخريطة</button>
     </div>
   </header>
@@ -259,9 +256,25 @@ body[data-provider="apple"] .provider-google{display:none!important}
   </div>
 </div>
 <script>
+/*
+  إعدادات الخرائط: ضع المفاتيح هنا فقط؛ لا تُعرض أي خانة مفاتيح للمستخدم.
+  ملاحظة: في HTML يعمل بالمتصفح، تبقى هذه القيم قابلة للاطلاع من كود المصدر.
+  قيّد Google Maps API Key بنطاق الموقع وMaps JavaScript API من Google Cloud.
+  لم يتم تضمين مفاتيح حقيقية لأن الملف الأصلي لا يحتوي عليها.
+*/
+const MAP_CONFIG = Object.freeze({
+  googleMapsApiKey: '', // ضع Google Maps API Key بين علامتي الاقتباس
+  googleMapId: 'DEMO_MAP_ID', // عوّضه بـ Map ID حقيقي إن توفر
+  appleMapKitToken: '' // ضع Apple MapKit JS Token بين علامتي الاقتباس
+});
+// توافق اختياري مع المفاتيح التي سبق إدخالها في النسخة القديمة على نفس المتصفح والموقع.
 const STORAGE_KEY='abht_google_maps_api_key_v1';
 const STORAGE_MAP_ID='abht_google_maps_map_id_v1';
 const STORAGE_APPLE_TOKEN='abht_apple_mapkit_token_v1';
+function configuredMapValue(value, storageKey){
+  if(String(value||'').trim())return String(value).trim();
+  try{return localStorage.getItem(storageKey)||''}catch{return ''}
+}
 const STORAGE_PROVIDER='abht_map_provider_v1';
 const STORAGE_POINTS='abht_google_maps_points_v1';
 let activeProvider='google';
@@ -281,7 +294,7 @@ async function initGoogleMap(){
     const {Map}=await google.maps.importLibrary('maps');
     const markerLib=await google.maps.importLibrary('marker');
     AdvancedMarkerElement=markerLib.AdvancedMarkerElement;PinElement=markerLib.PinElement;
-    const mapId=($('mapId').value||'DEMO_MAP_ID').trim()||'DEMO_MAP_ID';
+    const mapId=configuredMapValue(MAP_CONFIG.googleMapId,STORAGE_MAP_ID)||'DEMO_MAP_ID';
     map=new Map($('map'),{center:{lat:31.63,lng:-8.0},zoom:8,mapId,mapTypeId:'roadmap',mapTypeControl:true,streetViewControl:false,fullscreenControl:true,gestureHandling:'greedy'});
     infoWindow=new google.maps.InfoWindow();
 
@@ -294,9 +307,8 @@ async function initGoogleMap(){
 window.__abhtGoogleInit=()=>{initGoogleMap()};
 function loadGoogleMaps(){
   if(map){return}
-  const key=$('apiKey').value.trim();const mapId=$('mapId').value.trim()||'DEMO_MAP_ID';
-  if(!key){$('inputMsg').textContent='دخل API Key أولاً.';$('inputMsg').className='msg bad';return}
-  localStorage.setItem(STORAGE_KEY,key);localStorage.setItem(STORAGE_MAP_ID,mapId);
+  const key=configuredMapValue(MAP_CONFIG.googleMapsApiKey,STORAGE_KEY);
+  if(!key){$('inputMsg').textContent='Google Maps API Key غير محدد. أضفه داخل MAP_CONFIG في الكود.';$('inputMsg').className='msg bad';return}
   $('loadMap').disabled=true;$('inputMsg').textContent='جاري تحميل Google Maps…';$('inputMsg').className='msg';
   const s=document.createElement('script');s.async=true;s.defer=true;s.src='https://maps.googleapis.com/maps/api/js?key='+encodeURIComponent(key)+'&loading=async&libraries=marker&callback=__abhtGoogleInit&v=weekly';
   s.onerror=()=>{$('loadMap').disabled=false;$('inputMsg').textContent='فشل تحميل Google Maps. تحقق من API Key والإنترنت.';$('inputMsg').className='msg bad'};
@@ -354,9 +366,8 @@ async function initAppleMap(){
 }
 async function loadAppleMaps(){
   if(map)return;
-  const token=$('appleToken').value.trim();
-  if(!token){$('inputMsg').textContent='دخل Apple MapKit JS Token أولاً.';$('inputMsg').className='msg bad';return}
-  localStorage.setItem(STORAGE_APPLE_TOKEN,token);
+  const token=configuredMapValue(MAP_CONFIG.appleMapKitToken,STORAGE_APPLE_TOKEN);
+  if(!token){$('inputMsg').textContent='Apple MapKit JS Token غير محدد. أضفه داخل MAP_CONFIG في الكود.';$('inputMsg').className='msg bad';return}
   $('loadMap').disabled=true;$('inputMsg').textContent='جاري تحميل Apple Maps والتحقق من صلاحية Token…';$('inputMsg').className='msg warn';
   try{await loadAppleMapKit(token);await initAppleMap()}catch(e){console.error(e);$('loadMap').disabled=false;$('inputMsg').textContent=e.message||String(e);$('inputMsg').className='msg bad'}
 }
@@ -644,9 +655,6 @@ function syncProviderUi(){
 }
 $('mapProvider').addEventListener('change',()=>{try{localStorage.setItem(STORAGE_PROVIDER,$('mapProvider').value)}catch{};if(map){location.reload();return}syncProviderUi()});
 try{
-  $('apiKey').value=localStorage.getItem(STORAGE_KEY)||'';
-  $('mapId').value=localStorage.getItem(STORAGE_MAP_ID)||'DEMO_MAP_ID';
-  $('appleToken').value=localStorage.getItem(STORAGE_APPLE_TOKEN)||'';
   $('mapProvider').value=localStorage.getItem(STORAGE_PROVIDER)||'google';
 }catch{}
 syncProviderUi();
